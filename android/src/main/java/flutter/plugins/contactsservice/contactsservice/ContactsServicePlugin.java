@@ -64,16 +64,6 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
   private final ExecutorService executor =
           new ThreadPoolExecutor(0, 10, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(1000));
 
-  public static void registerWith(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
-    final ContactsServicePlugin instance = new ContactsServicePlugin();
-    instance.initInstance(registrar.messenger(), registrar.context());
-    ContactServiceDelegate delegate = new ContactServiceDelegate(registrar.context());
-    instance.delegate = delegate;
-    if (registrar.activity() != null) {
-      delegate.bindToActivity(registrar.activity());
-    }
-  }
-
   private void initInstance(BinaryMessenger messenger, Context context) {
     methodChannel = new MethodChannel(messenger, "github.com/clovisnicolas/flutter_contacts");
     methodChannel.setMethodCallHandler(this);
