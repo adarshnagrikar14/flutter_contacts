@@ -67,9 +67,10 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
   public static void registerWith(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
     final ContactsServicePlugin instance = new ContactsServicePlugin();
     instance.initInstance(registrar.messenger(), registrar.context());
-    instance.delegate = new ContactServiceDelegate(registrar.context());
+    ContactServiceDelegate delegate = new ContactServiceDelegate(registrar.context());
+    instance.delegate = delegate;
     if (registrar.activity() != null) {
-      ((ContactServiceDelegate) instance.delegate).bindToActivity(registrar.activity());
+      delegate.bindToActivity(registrar.activity());
     }
   }
 
