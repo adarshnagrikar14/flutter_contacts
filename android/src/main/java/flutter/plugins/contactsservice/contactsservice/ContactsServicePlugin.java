@@ -41,7 +41,6 @@ import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.plugin.common.PluginRegistry;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 import static android.app.Activity.RESULT_CANCELED;
 import static android.provider.ContactsContract.CommonDataKinds;
@@ -51,7 +50,6 @@ import static android.provider.ContactsContract.CommonDataKinds.Phone;
 import static android.provider.ContactsContract.CommonDataKinds.StructuredName;
 import static android.provider.ContactsContract.CommonDataKinds.StructuredPostal;
 
-@TargetApi(Build.VERSION_CODES.ECLAIR)
 public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, ActivityAware {
 
   private static final int FORM_OPERATION_CANCELED = 1;
@@ -66,14 +64,13 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
   private final ExecutorService executor =
           new ThreadPoolExecutor(0, 10, 60, TimeUnit.SECONDS, new ArrayBlockingQueue<Runnable>(1000));
 
-  private void initDelegateWithRegister(Registrar registrar) {
-    this.delegate = new ContactServiceDelegateOld(registrar);
-  }
-
-  public static void registerWith(Registrar registrar) {
-    ContactsServicePlugin instance = new ContactsServicePlugin();
+  public static void registerWith(io.flutter.plugin.common.PluginRegistry.Registrar registrar) {
+    final ContactsServicePlugin instance = new ContactsServicePlugin();
     instance.initInstance(registrar.messenger(), registrar.context());
-    instance.initDelegateWithRegister(registrar);
+    instance.delegate = new ContactServiceDelegate(registrar.context());
+    if (registrar.activity() != null) {
+      ((ContactServiceDelegate) instance.delegate).bindToActivity(registrar.activity());
+    }
   }
 
   private void initInstance(BinaryMessenger messenger, Context context) {
@@ -206,7 +203,6 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
           };
 
 
-  @TargetApi(Build.VERSION_CODES.ECLAIR)
   private void getContacts(String callMethod, String query, boolean withThumbnails, boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels, Result result) {
     new GetContactsTask(callMethod, result, withThumbnails, photoHighResolution, orderByGivenName, localizedLabels).executeOnExecutor(executor, query, false);
   }
@@ -287,16 +283,19 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
           return true;
         }
         Uri contactUri = intent.getData();
-          if (intent != null){
-        Cursor cursor = contentResolver.query(contactUri, null, null, null, null);
-        if (cursor.moveToFirst()) {
-          String id = contactUri.getLastPathSegment();
-          getContacts("openDeviceContactPicker", id, false, false, false, localizedLabels, this.result);
+        if (intent != null) {
+          Cursor cursor = contentResolver.query(contactUri, null, null, null, null);
+          if (cursor.moveToFirst()) {
+            String id = contactUri.getLastPathSegment();
+            getContacts("openDeviceContactPicker", id, false, false, false, localizedLabels, this.result);
+          } else {
+            Log.e(LOG_TAG, "onActivityResult - cursor.moveToFirst() returns false");
+            finishWithResult(FORM_OPERATION_CANCELED);
+          }
+          cursor.close();
         } else {
-          Log.e(LOG_TAG, "onActivityResult - cursor.moveToFirst() returns false");
-          finishWithResult(FORM_OPERATION_CANCELED);
-        }}else{return true;}
-        cursor.close();
+          return true;
+        }
         return true;
       }
 
@@ -375,24 +374,6 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
       }
   }
   
-  private class ContactServiceDelegateOld extends BaseContactsServiceDelegate {
-    private final PluginRegistry.Registrar registrar;
-
-    ContactServiceDelegateOld(PluginRegistry.Registrar registrar) {
-      this.registrar = registrar;
-      registrar.addActivityResultListener(this);
-    }
-
-    @Override
-    void startIntent(Intent intent, int request) {
-      if (registrar.activity() != null) {
-        registrar.activity().startActivityForResult(intent, request);
-      } else {
-        registrar.context().startActivity(intent);
-      }
-    }
-  }
-
   private class ContactServiceDelegate extends BaseContactsServiceDelegate {
     private final Context context;
     private ActivityPluginBinding activityPluginBinding;
@@ -423,11 +404,14 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
         context.startActivity(intent);
       }
     }
+
+    void bindToActivity(android.app.Activity activity) {
+        // This method can be simplified or removed if not needed
+        // It was added to support the old registration method
+    }
   }
 
-  @TargetApi(Build.VERSION_CODES.CUPCAKE)
-  private class GetContactsTask extends AsyncTask<Object, Void, ArrayList<HashMap>> {
-
+  private class GetContactsTask {
     private String callMethod;
     private Result getContactResult;
     private boolean withThumbnails;
@@ -435,7 +419,9 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
     private boolean orderByGivenName;
     private boolean localizedLabels;
 
-    public GetContactsTask(String callMethod, Result result, boolean withThumbnails, boolean photoHighResolution, boolean orderByGivenName, boolean localizedLabels) {
+    public GetContactsTask(String callMethod, Result result, boolean withThumbnails, 
+                          boolean photoHighResolution, boolean orderByGivenName, 
+                          boolean localizedLabels) {
       this.callMethod = callMethod;
       this.getContactResult = result;
       this.withThumbnails = withThumbnails;
@@ -444,7 +430,22 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
       this.localizedLabels = localizedLabels;
     }
 
-    @TargetApi(Build.VERSION_CODES.ECLAIR)
+    public void executeOnExecutor(ExecutorService executor, final Object... params) {
+      executor.execute(new Runnable() {
+        @Override
+        public void run() {
+          final ArrayList<HashMap> result = doInBackground(params);
+          android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+          mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+              onPostExecute(result);
+            }
+          });
+        }
+      });
+    }
+
     protected ArrayList<HashMap> doInBackground(Object... params) {
       ArrayList<Contact> contacts;
       switch (callMethod) {
@@ -465,22 +466,11 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
             // To stay backwards-compatible, return an empty byte array rather than `null`.
             c.avatar = new byte[0];
           }
-//          if ((Boolean) params[3])
-//              loadContactPhotoHighRes(c.identifier, (Boolean) params[3]);
-//          else
-//              setAvatarDataForContactIfAvailable(c);
         }
       }
 
-      if (orderByGivenName)
-      {
-        Comparator<Contact> compareByGivenName = new Comparator<Contact>() {
-          @Override
-          public int compare(Contact contactA, Contact contactB) {
-            return contactA.compareTo(contactB);
-          }
-        };
-        Collections.sort(contacts,compareByGivenName);
+      if (orderByGivenName) {
+        Collections.sort(contacts);
       }
 
       //Transform the list of contacts to a list of Map
@@ -656,7 +646,7 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
     new GetAvatarsTask(contact, highRes, contentResolver, result).executeOnExecutor(this.executor);
   }
 
-  private static class GetAvatarsTask extends AsyncTask<Void, Void, byte[]> {
+  private static class GetAvatarsTask {
     final Contact contact;
     final boolean highRes;
     final ContentResolver contentResolver;
@@ -670,13 +660,27 @@ public class ContactsServicePlugin implements MethodCallHandler, FlutterPlugin, 
       this.result = result;
     }
 
-    @Override
-    protected byte[] doInBackground(final Void... params) {
+    public void executeOnExecutor(ExecutorService executor) {
+      executor.execute(new Runnable() {
+        @Override
+        public void run() {
+          final byte[] avatar = doInBackground();
+          android.os.Handler mainHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+          mainHandler.post(new Runnable() {
+            @Override
+            public void run() {
+              onPostExecute(avatar);
+            }
+          });
+        }
+      });
+    }
+
+    protected byte[] doInBackground() {
       // Load avatar for each contact identifier.
       return loadContactPhotoHighRes(contact.identifier, highRes, contentResolver);
     }
 
-    @Override
     protected void onPostExecute(final byte[] avatar) {
       result.success(avatar);
     }
