@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:contacts_service/contacts_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,34 +8,43 @@ void main() {
   const MethodChannel channel =
       MethodChannel('github.com/clovisnicolas/flutter_contacts');
   final List<MethodCall> log = <MethodCall>[];
-  channel.setMockMethodCallHandler((MethodCall methodCall) async {
-    log.add(methodCall);
-    switch (methodCall.method) {
-      case 'getContacts':
-      case 'getContactsForPhone':
-      case 'getContactsForEmail':
-        return [
-          {'givenName': 'givenName1'},
-          {
-            'givenName': 'givenName2',
-            'postalAddresses': [
-              {'label': 'label'}
-            ],
-            'emails': [
-              {'label': 'label'}
-            ],
-            'birthday': '1994-02-01'
-          },
-        ];
-      case 'getAvatar':
-        return Uint8List.fromList([0, 1, 2, 3]);
-      default:
-        return null;
-    }
+
+  setUp(() {
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+      channel,
+      (MethodCall methodCall) async {
+        log.add(methodCall);
+        switch (methodCall.method) {
+          case 'getContacts':
+          case 'getContactsForPhone':
+          case 'getContactsForEmail':
+            return [
+              {'givenName': 'givenName1'},
+              {
+                'givenName': 'givenName2',
+                'postalAddresses': [
+                  {'label': 'label'}
+                ],
+                'emails': [
+                  {'label': 'label'}
+                ],
+                'birthday': '1994-02-01'
+              },
+            ];
+          case 'getAvatar':
+            return Uint8List.fromList([0, 1, 2, 3]);
+          default:
+            return null;
+        }
+      },
+    );
   });
 
   tearDown(() {
     log.clear();
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null);
   });
 
   test('should get contacts', () async {

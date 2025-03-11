@@ -1,11 +1,7 @@
 import 'dart:async';
-import 'dart:typed_data';
-
-import 'package:collection/collection.dart';
-import 'package:flutter/services.dart';
 import 'package:quiver/core.dart';
-
-export 'share.dart';
+import 'package:flutter/services.dart';
+import 'package:collection/collection.dart';
 
 class ContactsService {
   static const MethodChannel _channel =
